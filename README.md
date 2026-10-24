@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 
 # SiteShield 🛡️
 
@@ -62,3 +63,6 @@ Open `test.html` using Live Server and click **Run tests** to check representati
 ## Disclaimer
 
 SiteShield is an educational project. Always independently verify a website before entering passwords, one-time codes, or payment details.
+=======
+# WebTrust
+>>>>>>> 0f4b40f3647b8fd393464b32759d75487596aaaa
