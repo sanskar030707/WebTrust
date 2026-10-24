@@ -1,0 +1,239 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SiteShield — Test Runner</title>
+  <style>
+    body {
+      max-width: 850px;
+      margin: 35px auto;
+      padding: 0 18px;
+      font: 16px/1.6 system-ui, sans-serif;
+      background: #0b1220;
+      color: #edf3ff;
+    }
+    h1 { color: #65a8ff; }
+    button {
+      padding: 10px 16px;
+      border: 0;
+      border-radius: 8px;
+      background: #3b82f6;
+      color: white;
+      cursor: pointer;
+    }
+    li {
+      margin: 10px 0;
+      padding: 10px;
+      background: #152238;
+      border-radius: 8px;
+      overflow-wrap: anywhere;
+    }
+    .pass { border-left: 4px solid #4ade80; }
+    .fail { border-left: 4px solid #fb7185; }
+    #summary { font-weight: bold; margin: 20px 0; }
+    .muted { color: #9aabc5; }
+  </style>
+</head>
+<body>
+  <h1>SiteShield Test Runner</h1>
+  <p class="muted">
+    This page checks expected behavior in your existing index.html.
+    It does not change the detector or visit submitted websites.
+  </p>
+
+  <button id="run-tests">Run tests</button>
+  <p id="summary" aria-live="polite">Ready to test.</p>
+  <ol id="results"></ol>
+
+  <script>
+    "use strict";
+
+    const tests = [
+      {
+        name: "Accepts a normal HTTPS URL",
+        url: "https://google.com",
+        expected: "accepted"
+      },
+      {
+        name: "Accepts a known PayPal domain",
+        url: "https://paypal.com",
+        expected: "accepted"
+      },
+      {
+        name: "Flags a look-alike PayPal hostname",
+        url: "https://paypa1.com",
+        expected: "brand-warning"
+      },
+      {
+        name: "Flags a hyphenated PayPal look-alike",
+        url: "https://pay-pal.com",
+        expected: "brand-warning"
+      },
+      {
+        name: "Flags an HTTP connection",
+        url: "http://example.com",
+        expected: "http-warning"
+      },
+      {
+        name: "Flags an IP address host",
+        url: "https://192.0.2.1/login",
+        expected: "ip-warning"
+      },
+      {
+        name: "Rejects an unsupported protocol",
+        url: "ftp://example.com",
+        expected: "rejected"
+      },
+      {
+        name: "Rejects an empty URL",
+        url: "",
+        expected: "rejected"
+      },
+      {
+        name: "Rejects a URL containing spaces",
+        url: "https://example .com",
+        expected: "rejected"
+      },
+      {
+        name: "Rejects a protocol-relative URL",
+        url: "//example.com",
+        expected: "rejected"
+      }
+    ];
+
+    function inspectInApp(url) {
+      /*
+        The detector is defined inside index.html, so this test runner
+        opens index.html in a hidden iframe and uses its public UI.
+      */
+      return new Promise((resolve) => {
+        const frame = document.createElement("iframe");
+        frame.hidden = true;
+        frame.src = "index.html";
+
+        frame.onload = () => {
+          try {
+            const doc = frame.contentDocument;
+            const input = doc.querySelector("#url-input");
+            const form = doc.querySelector("#check-form");
+
+            if (!input || !form) {
+              resolve({
+                ok: false,
+                message: "Could not find the expected checker elements in index.html."
+              });
+              frame.remove();
+              return;
+            }
+
+            input.value = url;
+
+            form.dispatchEvent(new frame.contentWindow.Event(
+              "submit",
+              { bubbles: true, cancelable: true }
+            ));
+
+            const error = doc.querySelector("#input-error");
+            const results = doc.querySelector("#results");
+            const findings = doc.querySelector("#findings");
+            const text = findings ? findings.innerText.toLowerCase() : "";
+
+            let actual;
+
+            if (error && !error.hidden) {
+              actual = "rejected";
+            } else if (!results || results.hidden) {
+              actual = "no-results";
+            } else if (text.includes("impersonation")) {
+              actual = "brand-warning";
+            } else if (text.includes("connection is not encrypted")) {
+              actual = "http-warning";
+            } else if (text.includes("ip address used as the host")) {
+              actual = "ip-warning";
+            } else {
+              actual = "accepted";
+            }
+
+            resolve({
+              ok: true,
+              actual,
+              message: "Expected " + expectedLabel(url) +
+                "; observed " + actual + "."
+            });
+          } catch (error) {
+            resolve({
+              ok: false,
+              message: error.message || "Test could not complete."
+            });
+          } finally {
+            frame.remove();
+          }
+        };
+
+        frame.onerror = () => {
+          resolve({
+            ok: false,
+            message: "Could not load index.html."
+          });
+          frame.remove();
+        };
+
+        document.body.appendChild(frame);
+      });
+    }
+
+    function expectedLabel(url) {
+      const test = tests.find(item => item.url === url);
+      return test ? test.expected : "unknown";
+    }
+
+    function matchesExpected(expected, actual) {
+      if (expected === "accepted") {
+        return actual === "accepted";
+      }
+
+      return expected === actual;
+    }
+
+    document.querySelector("#run-tests").addEventListener("click", async () => {
+      const button = document.querySelector("#run-tests");
+      const output = document.querySelector("#results");
+      const summary = document.querySelector("#summary");
+
+      button.disabled = true;
+      output.replaceChildren();
+      summary.textContent = "Running tests…";
+
+      let passed = 0;
+
+      for (const test of tests) {
+        const result = await inspectInApp(test.url);
+        const success = result.ok &&
+          matchesExpected(test.expected, result.actual);
+
+        if (success) passed++;
+
+        const item = document.createElement("li");
+        item.className = success ? "pass" : "fail";
+
+        const title = document.createElement("strong");
+        title.textContent = (success ? "PASS: " : "FAIL: ") + test.name;
+
+        const details = document.createElement("div");
+        details.textContent = result.message ||
+          "Expected " + test.expected + "; actual " + result.actual;
+
+        item.append(title, details);
+        output.appendChild(item);
+      }
+
+      summary.textContent =
+        passed + " / " + tests.length + " tests passed.";
+
+      button.disabled = false;
+    });
+  </script>
+</body>
+</html>
